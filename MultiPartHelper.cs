@@ -1,68 +1,260 @@
 using Amazon;
 using Amazon.S3;
 using Amazon.S3.Transfer;
+using Amazon.S3.Model;
 using System;
 using System.IO;
 using System.Threading.Tasks;
-
+using System;
+using System.Collections.Generic;
+using System.Threading.Tasks;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 namespace S3
 {
-    public static class MultiPartHelper
+    public class MultiPartHelper
     {
-        // Specify your bucket region (an example region is shown).
-        private static readonly RegionEndpoint bucketRegion = RegionEndpoint.USEast1;
-        private static IAmazonS3 s3Client;
-
-      
-        public static async Task UploadFileAsync(string bucketName, string keyName, string filePath)
+        private IAmazonS3 s3Client=null;
+        private IConfigurationRoot config=null;
+        private ILogger logger=null;
+        public MultiPartHelper(IAmazonS3 s3Client, IConfigurationRoot config,ILoggerFactory loggerFactory)
+        {
+                this.s3Client=s3Client;
+                this.config=config;
+                this.logger=loggerFactory.CreateLogger<MultiPartHelper>();
+        }
+        
+        public async Task MPUUploadFileAsync(string bucketName, string keyName, string filePath, Dictionary<string,string> metadataDict)
         {
             try
             {
+                logger.LogInformation("Inside Upload");
                 var fileTransferUtility =
                     new TransferUtility(s3Client);
 
-                // Option 1. Upload a file. The file name is used as the object key name.
-                await fileTransferUtility.UploadAsync(filePath, bucketName);
-                Console.WriteLine("Upload 1 completed");
-
-                // Option 2. Specify object key name explicitly.
-                await fileTransferUtility.UploadAsync(filePath, bucketName, keyName);
-                Console.WriteLine("Upload 2 completed");
-
-                // Option 3. Upload data from a type of System.IO.Stream.
-                using (var fileToUpload = 
-                    new FileStream(filePath, FileMode.Open, FileAccess.Read))
-                {
-                    await fileTransferUtility.UploadAsync(fileToUpload,
-                                               bucketName, keyName);
-                }
-                Console.WriteLine("Upload 3 completed");
-
-                // Option 4. Specify advanced settings.
-                var fileTransferUtilityRequest = new TransferUtilityUploadRequest
+               //Multi-Part Upload
+                var fileTransferUtilityRequest = new TransferUtilityUploadRequest()
                 {
                     BucketName = bucketName,
                     FilePath = filePath,
-                    StorageClass = S3StorageClass.StandardInfrequentAccess,
+                    StorageClass = S3StorageClass.Standard,
                     PartSize = 6291456, // 6 MB.
-                    Key = keyName,
-                    CannedACL = S3CannedACL.PublicRead
+                    Key = keyName
                 };
-                fileTransferUtilityRequest.Metadata.Add("param1", "Value1");
-                fileTransferUtilityRequest.Metadata.Add("param2", "Value2");
+                
+                foreach(var item in metadataDict)
+                {
+                   fileTransferUtilityRequest.Metadata.Add(item.Key, item.Value); 
+                }
+                fileTransferUtilityRequest.UploadProgressEvent +=
+                    new EventHandler<UploadProgressArgs>
+                        (uploadRequest_UploadPartProgressEvent);
+
+                logger.LogInformation("Upload Started");
 
                 await fileTransferUtility.UploadAsync(fileTransferUtilityRequest);
-                Console.WriteLine("Upload 4 completed");
+                logger.LogInformation("Upload completed");
             }
             catch (AmazonS3Exception e)
             {
-                Console.WriteLine("Error encountered on server. Message:'{0}' when writing an object", e.Message);
+                logger.LogInformation("Error encountered on server. Message:'{0}' when writing an object", e.Message);
             }
             catch (Exception e)
             {
-                Console.WriteLine("Unknown encountered on server. Message:'{0}' when writing an object", e.Message);
+                logger.LogInformation("Unknown encountered on server. Message:'{0}' when writing an object", e.Message);
             }
 
         }
+        private void uploadRequest_UploadPartProgressEvent(object sender, UploadProgressArgs e)
+        {
+            // Process event.
+            logger.LogInformation("{0}/{1}", e.TransferredBytes, e.TotalBytes);
+        }
+        public  async Task<MPUCopyObjectResponse> MPUCopyObjectAsync(string sourceBucket,string sourceObjectKey, string targetBucket, string targetObjectKey)
+        {
+            bool copyIfStrippedMetadaisNotPresent;
+            bool.TryParse(config["copy_if_stripped_metadata_notpresent"],out copyIfStrippedMetadaisNotPresent);
+            long partSize = 5 * (long)Math.Pow(2, 20); // Part size is 5 MB.
+            var copyResponse=new MPUCopyObjectResponse();
+
+            // Create a list to store the upload part responses.
+            List<UploadPartResponse> uploadResponses = new List<UploadPartResponse>();
+            List<CopyPartResponse> copyResponses = new List<CopyPartResponse>();
+
+            GetObjectMetadataRequest metadataRequest = new GetObjectMetadataRequest
+                {
+                    BucketName = sourceBucket,
+                    Key = sourceObjectKey
+                };
+
+            var newMetadata= await GetObjectMetadata(metadataRequest);
+            
+            if(newMetadata.ContentLength==0 || (!newMetadata.StrippedKeysPresent && !copyIfStrippedMetadaisNotPresent))
+            {
+                logger.LogInformation("Metadata get error or Stripped Keys not present. Not copying object {0}/{1}",sourceBucket,sourceObjectKey);
+                copyResponse.Message="Metadata error or Stripped Keys not present";
+                return copyResponse ;
+            }
+            if(newMetadata.ContentLength<=partSize)
+            {
+                return await CopyObjectAsync(sourceBucket,sourceObjectKey,targetBucket,targetObjectKey,newMetadata);
+            }
+            // Setup information required to initiate the multipart upload.
+            InitiateMultipartUploadRequest initiateRequest =
+                new InitiateMultipartUploadRequest
+                {
+                    BucketName = targetBucket,
+                    Key = targetObjectKey,
+                };
+            foreach(var item in newMetadata.MetadataCollection)
+            {
+                initiateRequest.Metadata.Add(item.Key,item.Value);
+            }
+            
+            logger.LogInformation("Initiating multi-part upload for {0}/{1}",sourceBucket,sourceObjectKey);
+            // Initiate the upload.
+            InitiateMultipartUploadResponse initResponse =
+                await s3Client.InitiateMultipartUploadAsync(initiateRequest);
+
+            // Save the upload ID.
+            String uploadId = initResponse.UploadId;
+            try
+            {
+                long objectSize = newMetadata.ContentLength; // Length in bytes.
+                // Copy the parts.
+               
+                long bytePosition = 0;
+                for (int i = 1; bytePosition < objectSize; i++)
+                {
+                    CopyPartRequest copyRequest = new CopyPartRequest
+                    {
+                        DestinationBucket = targetBucket,
+                        DestinationKey = targetObjectKey,
+                        SourceBucket = sourceBucket,
+                        SourceKey = sourceObjectKey,
+                        UploadId = uploadId,
+                        FirstByte = bytePosition,
+                        LastByte = bytePosition + partSize - 1 >= objectSize ? objectSize - 1 : bytePosition + partSize - 1,
+                        PartNumber = i
+                    };
+                    copyResponses.Add(await s3Client.CopyPartAsync(copyRequest));
+                    bytePosition += partSize;
+                    MPUCopyProgress(sourceObjectKey,bytePosition,objectSize);
+                }
+                // Set up to complete the copy.
+                CompleteMultipartUploadRequest completeRequest =
+                new CompleteMultipartUploadRequest
+                {
+                    BucketName = targetBucket,
+                    Key = targetObjectKey,
+                    UploadId = initResponse.UploadId
+                };
+                completeRequest.AddPartETags(copyResponses);
+                // Complete the copy.
+                CompleteMultipartUploadResponse completeUploadResponse = 
+                    await s3Client.CompleteMultipartUploadAsync(completeRequest);
+                copyResponse.CopiedSuccessfully=true;
+                logger.LogInformation("Multi-part upload complete for {0}/{1}",sourceBucket,sourceObjectKey);
+                return copyResponse;
+            }
+            catch (AmazonS3Exception e)
+            {
+                logger.LogInformation("Error encountered on server. Message:'{0}' when copying object {1}/{2}", e.Message,sourceBucket,sourceObjectKey);
+                copyResponse.Message=e.Message;
+            }
+            catch (Exception e)
+            {
+                logger.LogInformation("Unknown encountered on server. Message:'{0}' when copying object {1}/{2}", e.Message,sourceBucket,sourceObjectKey);
+                copyResponse.Message=e.Message;
+            }
+
+            return copyResponse;
+        }
+        public  async Task<MPUCopyObjectResponse> CopyObjectAsync(string sourceBucket,string sourceObjectKey, string targetBucket, string targetObjectKey,Metadata metadata)
+        {
+            var copyResponse=new MPUCopyObjectResponse();
+            try
+            {
+                CopyObjectRequest request = new CopyObjectRequest
+                {
+                    SourceBucket = sourceBucket,
+                    SourceKey = sourceObjectKey,
+                    DestinationBucket = targetBucket,
+                    DestinationKey = targetObjectKey,
+                    MetadataDirective=S3MetadataDirective.REPLACE,
+                };
+                foreach(var item in metadata.MetadataCollection)
+                {
+                    request.Metadata.Add(item.Key,item.Value);
+                }
+                logger.LogInformation("Object less than multi-part threshold. Copying object {0}/{1} using regular copy.",sourceBucket,sourceObjectKey);
+                CopyObjectResponse response = await s3Client.CopyObjectAsync(request);
+                copyResponse.CopiedSuccessfully=true;
+                logger.LogInformation("Copied object - {0}/{1}",sourceBucket,sourceObjectKey);
+            }
+            catch (AmazonS3Exception e)
+            {
+                logger.LogInformation("Error encountered on server. Message:'{0}' when writing an object", e.Message);
+                copyResponse.Message=e.Message;
+            }
+            catch (Exception e)
+            {
+                logger.LogInformation("Unknown encountered on server. Message:'{0}' when writing an object", e.Message);
+                copyResponse.Message=e.Message;
+            }
+            return copyResponse;
+        }
+        private void MPUCopyProgress(string objectKey, long copiedBytes, long totalBytes)
+        {
+             int percentCopied=Convert.ToInt32(copiedBytes*100/totalBytes);
+             logger.LogInformation("Copying {0} - Copied Percent {1}% - {2}/{3} Bytes", objectKey,percentCopied,copiedBytes, totalBytes);
+        }
+        private async Task<Metadata> GetObjectMetadata(GetObjectMetadataRequest objectMetadataRequest)
+        {
+            var strippedKeys=config["stripped_keys"]??""; 
+            var newMetadataDictionary=new Dictionary<string,string>();
+            var newMetadata= new Metadata();
+            try
+            {
+                var strippedKeyList=strippedKeys.Split(',');
+                if(strippedKeyList.Length>0)
+                {
+                    strippedKeyList=strippedKeyList.Select(k=>{k="x-amz-meta-"+k;return k;}).ToArray();
+                }
+                
+                logger.LogInformation("Getting metadata for object - {0}/{1} ",objectMetadataRequest.BucketName,objectMetadataRequest.Key);
+
+                GetObjectMetadataResponse metadataResponse =
+                    await s3Client.GetObjectMetadataAsync(objectMetadataRequest);
+                newMetadata.ContentLength=metadataResponse.ContentLength;
+                var metadataCollection=metadataResponse.Metadata;
+
+                if(metadataCollection?.Count>0)
+                {
+                    var currentKeyList=metadataCollection.Keys;
+                    if(currentKeyList.Any(item=>strippedKeyList.Contains(item)))
+                    {
+                        newMetadata.StrippedKeysPresent=true;
+                    }
+
+                    var newKeyList=currentKeyList.Except(strippedKeyList);
+                    
+                    foreach(var key in newKeyList)
+                    {
+                        if(!String.IsNullOrEmpty(metadataCollection[key]))
+                        {
+                            newMetadataDictionary.Add(key,metadataCollection[key]);
+                        }
+                    }
+                    newMetadata.MetadataCollection=newMetadataDictionary;
+                }
+            }
+            catch(Exception ex)
+            {
+                 logger.LogInformation("Error getting meta data for Object:'{0}'. Error: {1}",objectMetadataRequest.Key ,ex.Message);
+            }
+            return newMetadata;
+        }
+
     }
 }
