@@ -1,13 +1,6 @@
-using Amazon;
 using Amazon.S3;
 using Amazon.S3.Transfer;
 using Amazon.S3.Model;
-using System;
-using System.IO;
-using System.Threading.Tasks;
-using System;
-using System.Collections.Generic;
-using System.Threading.Tasks;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 namespace S3
@@ -75,7 +68,7 @@ namespace S3
             bool copyIfStrippedMetadaisNotPresent;
             bool.TryParse(config["copy_if_stripped_metadata_notpresent"],out copyIfStrippedMetadaisNotPresent);
             long partSize = 5 * (long)Math.Pow(2, 20); // Part size is 5 MB.
-            var copyResponse=new MPUCopyObjectResponse();
+            var copyResponse=new MPUCopyObjectResponse(sourceBucket,sourceObjectKey);
 
             // Create a list to store the upload part responses.
             List<UploadPartResponse> uploadResponses = new List<UploadPartResponse>();
@@ -159,12 +152,12 @@ namespace S3
             }
             catch (AmazonS3Exception e)
             {
-                logger.LogInformation("Error encountered on server. Message:'{0}' when copying object {1}/{2}", e.Message,sourceBucket,sourceObjectKey);
+                logger.LogError("Error encountered on server. Message:'{0}' when copying object {1}/{2}", e.Message,sourceBucket,sourceObjectKey);
                 copyResponse.Message=e.Message;
             }
             catch (Exception e)
             {
-                logger.LogInformation("Unknown encountered on server. Message:'{0}' when copying object {1}/{2}", e.Message,sourceBucket,sourceObjectKey);
+                logger.LogError("Unknown encountered on server. Message:'{0}' when copying object {1}/{2}", e.Message,sourceBucket,sourceObjectKey);
                 copyResponse.Message=e.Message;
             }
 
@@ -172,7 +165,7 @@ namespace S3
         }
         public  async Task<MPUCopyObjectResponse> CopyObjectAsync(string sourceBucket,string sourceObjectKey, string targetBucket, string targetObjectKey,Metadata metadata)
         {
-            var copyResponse=new MPUCopyObjectResponse();
+            var copyResponse=new MPUCopyObjectResponse(sourceBucket,sourceObjectKey);
             try
             {
                 CopyObjectRequest request = new CopyObjectRequest
@@ -194,12 +187,12 @@ namespace S3
             }
             catch (AmazonS3Exception e)
             {
-                logger.LogInformation("Error encountered on server. Message:'{0}' when writing an object", e.Message);
+                logger.LogError("Error encountered on server. Message:'{0}' when writing an object", e.Message);
                 copyResponse.Message=e.Message;
             }
             catch (Exception e)
             {
-                logger.LogInformation("Unknown encountered on server. Message:'{0}' when writing an object", e.Message);
+                logger.LogError("Unknown encountered on server. Message:'{0}' when writing an object", e.Message);
                 copyResponse.Message=e.Message;
             }
             return copyResponse;
@@ -207,7 +200,7 @@ namespace S3
         private void MPUCopyProgress(string objectKey, long copiedBytes, long totalBytes)
         {
              int percentCopied=Convert.ToInt32(copiedBytes*100/totalBytes);
-             logger.LogInformation("Copying {0} - Copied Percent {1}% - {2}/{3} Bytes", objectKey,percentCopied,copiedBytes, totalBytes);
+             logger.LogDebug("Copying {0} - Copied Percent {1}% - {2}/{3} Bytes", objectKey,percentCopied,copiedBytes, totalBytes);
         }
         private async Task<Metadata> GetObjectMetadata(GetObjectMetadataRequest objectMetadataRequest)
         {
@@ -251,7 +244,7 @@ namespace S3
             }
             catch(Exception ex)
             {
-                 logger.LogInformation("Error getting meta data for Object:'{0}'. Error: {1}",objectMetadataRequest.Key ,ex.Message);
+                 logger.LogError("Error getting meta data for Object:'{0}'. Error: {1}",objectMetadataRequest.Key ,ex.Message);
             }
             return newMetadata;
         }
