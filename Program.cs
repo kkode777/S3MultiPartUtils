@@ -18,7 +18,7 @@ namespace S3
         {
             var config =  new ConfigurationBuilder()
             .SetBasePath(Directory.GetCurrentDirectory())
-            .AddJsonFile($"appsettings.json").Build();
+            .AddJsonFile($"appSettings.json").Build();
 
             IServiceCollection services = new ServiceCollection();
             var serviceProvider = services.BuildServiceProvider();
@@ -28,7 +28,7 @@ namespace S3
             var targetBucket=config["target_bucket"];
 
             using var loggerFactory = LoggerFactory.Create(loggingBuilder => loggingBuilder
-                .SetMinimumLevel(LogLevel.Trace)
+                .SetMinimumLevel(LogLevel.Debug)
                 .AddConsole());
 
             ILogger logger = loggerFactory.CreateLogger<Program>();
@@ -62,14 +62,17 @@ namespace S3
                 logger.LogDebug("*********Copying Started**********");
                 Stopwatch stopWatch = new Stopwatch();
                 stopWatch.Start();
-                foreach(var filePath in filePaths)
+                
+                //foreach(var filePath in filePaths)
+                await Parallel.ForEachAsync(filePaths,async(filePath,CancellationToken)=>
                 {
-                    ++counter;
+                   // ++counter;
                     var objectPath=filePath.Path;
-                    logger.LogDebug("Copying {0} -- file {1}/{2}",objectPath,counter,totalCount);
+                   // logger.LogDebug("Copying {0} -- file {1}/{2}",objectPath,counter,totalCount);
+                    logger.LogDebug("Copying {0}",objectPath);
 
                     await mpuHelper.MPUCopyObjectAsync(sourceBucket,objectPath,targetBucket,objectPath);
-                }
+                });
                 stopWatch.Stop();
                 // Get the elapsed time as a TimeSpan value.
                 TimeSpan ts = stopWatch.Elapsed;
