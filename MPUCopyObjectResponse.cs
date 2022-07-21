@@ -1,22 +1,44 @@
+/*
+    The material embodied in this software is provided to you "as-is" and without warranty of any kind, express, implied or otherwise, including without limitation, any warranty of fitness for a particular purpose.
+*/
 public class MPUCopyObjectResponse
 {
-    private readonly string _bucket =string.Empty;
-    private readonly string _key=string.Empty;
+    private readonly string _sourceBucket =string.Empty;
+    private readonly string _sourceKey=string.Empty;
+    private readonly string _targetBucket =string.Empty;
+    private readonly string _targetKey=string.Empty;
+    private string  _strippedMetadata=string.Empty;
     private string _message=string.Empty;
     public bool CopiedSuccessfully {get;set;}
 
-    public MPUCopyObjectResponse(string bucket, string key)
+    public MPUCopyObjectResponse(string sourceBucket, string sourceKey, string targetBucket, string targetKey)
     {
-        _bucket=bucket;
-        _key=key;
+        _sourceBucket=sourceBucket;
+        _sourceKey=sourceKey;
+        _targetBucket=targetBucket;
+        _targetKey=targetKey;
     }
-    public string Bucket
+    public string SourceBucket
     {
-        get{return _bucket;}
+        get{return _sourceBucket;}
     }
-    public string Key
+    public string SourceKey
     {
-        get{return _key;}
+        get{return _sourceKey;}
+    }
+    public string TargetBucket
+    {
+        get{return _targetBucket;}
+    }
+    public string TargetKey
+    {
+        get{return _targetKey;}
+    }
+
+    public string StrippedMetadata
+    {
+        get{return _strippedMetadata;}
+        set{_strippedMetadata=value;}
     }
     public string Message
     {

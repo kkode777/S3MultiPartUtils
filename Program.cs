@@ -1,3 +1,7 @@
+/*
+    The material embodied in this software is provided to you "as-is" and without warranty of any kind, express, implied or otherwise, including without limitation, any warranty of fitness for a particular purpose.
+*/
+
 using Amazon;
 using Amazon.S3;
 using Microsoft.Extensions.Configuration;
@@ -133,6 +137,7 @@ namespace S3
                     var request = new CreateTableRequest
                     {
                         TableName = tableName,
+                        BillingMode= "PAY_PER_REQUEST",
                         AttributeDefinitions = new List<AttributeDefinition>
                         {
                             new AttributeDefinition
@@ -142,7 +147,7 @@ namespace S3
                             },
                             new AttributeDefinition
                             {
-                                AttributeName = "Key",
+                                AttributeName = "SourceKey",
                                 AttributeType = "S"
                             }
                         },
@@ -157,15 +162,16 @@ namespace S3
                             },
                             new KeySchemaElement
                             {
-                                AttributeName = "Key",
+                                AttributeName = "SourceKey",
                                 KeyType = "RANGE"
                             },
-                        },
-                        ProvisionedThroughput = new ProvisionedThroughput
-                        {
-                            ReadCapacityUnits = 10,
-                            WriteCapacityUnits = 5
-                        },
+                        }
+                        // ,
+                        // ProvisionedThroughput = new ProvisionedThroughput
+                        // {
+                        //     ReadCapacityUnits = 10,
+                        //     WriteCapacityUnits = 5
+                        // },
                     };
 
                     var response = await client.CreateTableAsync(request);
@@ -197,8 +203,10 @@ namespace S3
                     Item = new Dictionary<string, AttributeValue>
                     {
                         { "BatchId", new AttributeValue { S = batchId }},
-                        { "BucketName", new AttributeValue { S = copyResponse.Bucket }},
-                        { "Key", new AttributeValue { S = copyResponse.Key }},
+                        { "SourceBucket", new AttributeValue { S = copyResponse.SourceBucket }},
+                        { "SourceKey", new AttributeValue { S = copyResponse.SourceKey }},
+                        { "TargetBucket", new AttributeValue { S = copyResponse.TargetBucket }},
+                        { "TargetKey", new AttributeValue { S = copyResponse.TargetKey }},
                         { "Status", new AttributeValue { S = copyResponse.CopiedSuccessfully.ToString() }},
                         { "Message", new AttributeValue { S = copyResponse.Message }}
                     }

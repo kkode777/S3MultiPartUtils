@@ -1,3 +1,6 @@
+/*
+    The material embodied in this software is provided to you "as-is" and without warranty of any kind, express, implied or otherwise, including without limitation, any warranty of fitness for a particular purpose.
+*/
 using Amazon.S3;
 using Amazon.S3.Transfer;
 using Amazon.S3.Model;
@@ -25,13 +28,15 @@ namespace S3
                 var fileTransferUtility =
                     new TransferUtility(s3Client);
 
+                long partSize=6291456;
+                long.TryParse(config["multipart_chunk_size"],out partSize);
                //Multi-Part Upload
                 var fileTransferUtilityRequest = new TransferUtilityUploadRequest()
                 {
                     BucketName = bucketName,
                     FilePath = filePath,
                     StorageClass = S3StorageClass.Standard,
-                    PartSize = 6291456, // 6 MB.
+                    PartSize = partSize, 
                     Key = keyName
                 };
                 
@@ -68,7 +73,7 @@ namespace S3
             bool copyIfStrippedMetadaisNotPresent;
             bool.TryParse(config["copy_if_stripped_metadata_notpresent"],out copyIfStrippedMetadaisNotPresent);
             long partSize = 5 * (long)Math.Pow(2, 20); // Part size is 5 MB.
-            var copyResponse=new MPUCopyObjectResponse(sourceBucket,sourceObjectKey);
+            var copyResponse=new MPUCopyObjectResponse(sourceBucket,sourceObjectKey,targetBucket,targetObjectKey);
 
             // Create a list to store the upload part responses.
             List<UploadPartResponse> uploadResponses = new List<UploadPartResponse>();
@@ -165,7 +170,7 @@ namespace S3
         }
         public  async Task<MPUCopyObjectResponse> CopyObjectAsync(string sourceBucket,string sourceObjectKey, string targetBucket, string targetObjectKey,Metadata metadata)
         {
-            var copyResponse=new MPUCopyObjectResponse(sourceBucket,sourceObjectKey);
+            var copyResponse=new MPUCopyObjectResponse(sourceBucket,sourceObjectKey,targetBucket,targetObjectKey);
             try
             {
                 CopyObjectRequest request = new CopyObjectRequest
