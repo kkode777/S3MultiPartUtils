@@ -26,8 +26,8 @@ namespace S3
             var serviceProvider = services.BuildServiceProvider();
 
             var region = config["region"] ?? "us-east-1";
-            var sourceBucket = config["source_bucket"];
-            var targetBucket = config["target_bucket"];
+            // var sourceBucket = config["source_bucket"];
+            // var targetBucket = config["target_bucket"];
             var logToDynamo=false;
             bool.TryParse(config["log_to_dynamoDB"],out logToDynamo);
             var dynamoDBTable=config["dynamoDB_table"];
@@ -38,16 +38,16 @@ namespace S3
 
             ILogger logger = loggerFactory.CreateLogger<Program>();
 
-            if (string.IsNullOrEmpty(sourceBucket))
-            {
-                logger.LogError("Cannot continue. Source bucket key is not present in AppSettings ");
-                return;
-            }
-            if (string.IsNullOrEmpty(targetBucket))
-            {
-                logger.LogError("Cannot continue. Target bucket key is not present in AppSettings ");
-                return;
-            }
+            // if (string.IsNullOrEmpty(sourceBucket))
+            // {
+            //     logger.LogError("Cannot continue. Source bucket key is not present in AppSettings ");
+            //     return;
+            // }
+            // if (string.IsNullOrEmpty(targetBucket))
+            // {
+            //     logger.LogError("Cannot continue. Target bucket key is not present in AppSettings ");
+            //     return;
+            // }
             if (region != "us-east-1")
             {
                 logger.LogError("Cannot continue. The only supported AWS Region ID is " +
@@ -61,7 +61,7 @@ namespace S3
             }
             try
             {
-                logger.LogInformation("Region: {0}, Source bucket: {1}, Target Bucket: {2}", region, sourceBucket, targetBucket);
+                logger.LogInformation("Region: {0}", region);
                 var bucketRegion = RegionEndpoint.USEast1;
                 var s3Client = new AmazonS3Client(bucketRegion);
             
@@ -75,6 +75,7 @@ namespace S3
                 MultiPartHelper mpuHelper = new MultiPartHelper(s3Client, config, loggerFactory);
                 var filePaths = GetInventory("./inventory.csv");
                 var totalCount = filePaths.Count;
+                logger.LogDebug($"Object key count - {totalCount}");
                 logger.LogDebug("*********Copying Started**********");
                 Stopwatch stopWatch = new Stopwatch();
                 stopWatch.Start();
@@ -83,11 +84,20 @@ namespace S3
                 await Parallel.ForEachAsync(filePaths, async (filePath, CancellationToken) =>
                 {
                     // ++counter;
-                    var objectPath = filePath.Path;
+                    var objectPath = filePath.ObjectName;
+                    var sourceBucket=filePath.SourceBucketName;
+                    var targetBucket=filePath.TargetBucketName;
+                    var permissionsDict=new Dictionary<string,string>(){
+                        {"file-owner",filePath.FileOwner},
+                        {"file-permissions" ,filePath.FilePermissions},
+                        {"file-group" ,filePath.FileGroup},
+                        {"file-acl" ,filePath.FileAcl} 
+                    };
+                    
                     // logger.LogDebug("Copying {0} -- file {1}/{2}",objectPath,counter,totalCount);
                     logger.LogDebug("Copying {0}", objectPath);
 
-                    var copyResponse=await mpuHelper.MPUCopyObjectAsync(sourceBucket, objectPath, targetBucket, objectPath);
+                    var copyResponse=await mpuHelper.MPUCopyObjectAsync(sourceBucket, objectPath, targetBucket, objectPath,permissionsDict);
                     if(logToDynamo && dynmoDBTableCreated)
                     {
                         await LogItemStatusToDynamoDB(batchId,dynamoDBTable,copyResponse,logger);
@@ -118,6 +128,7 @@ namespace S3
             using (var reader = new StreamReader(filePath))
             using (var csv = new CsvReader(reader, CultureInfo.InvariantCulture))
             {
+                csv.Context.RegisterClassMap<InventoryItemMap>();
                 filePaths = csv.GetRecords<InventoryItem>().ToList();
             }
             return filePaths;

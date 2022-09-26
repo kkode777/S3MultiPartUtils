@@ -68,7 +68,7 @@ namespace S3
             // Process event.
             logger.LogInformation("{0}/{1}", e.TransferredBytes, e.TotalBytes);
         }
-        public  async Task<MPUCopyObjectResponse> MPUCopyObjectAsync(string sourceBucket,string sourceObjectKey, string targetBucket, string targetObjectKey)
+        public  async Task<MPUCopyObjectResponse> MPUCopyObjectAsync(string sourceBucket,string sourceObjectKey, string targetBucket, string targetObjectKey,Dictionary<string,string> permissionsDict)
         {
             bool copyIfStrippedMetadaisNotPresent;
             bool.TryParse(config["copy_if_stripped_metadata_notpresent"],out copyIfStrippedMetadaisNotPresent);
@@ -85,7 +85,7 @@ namespace S3
                     Key = sourceObjectKey
                 };
 
-            var newMetadata= await GetObjectMetadata(metadataRequest);
+            var newMetadata= await GetObjectMetadata(metadataRequest,permissionsDict);
             
             if(newMetadata.ContentLength==0 || (!newMetadata.StrippedKeysPresent && !copyIfStrippedMetadaisNotPresent))
             {
@@ -207,7 +207,7 @@ namespace S3
              int percentCopied=Convert.ToInt32(copiedBytes*100/totalBytes);
              logger.LogDebug("Copying {0} - Copied Percent {1}% - {2}/{3} Bytes", objectKey,percentCopied,copiedBytes, totalBytes);
         }
-        private async Task<Metadata> GetObjectMetadata(GetObjectMetadataRequest objectMetadataRequest)
+        private async Task<Metadata> GetObjectMetadata(GetObjectMetadataRequest objectMetadataRequest,Dictionary<string,string> permissionsDict)
         {
             var strippedKeys=config["stripped_keys"]??""; 
             var newMetadataDictionary=new Dictionary<string,string>();
@@ -235,7 +235,7 @@ namespace S3
                         newMetadata.StrippedKeysPresent=true;
                     }
 
-                    var newKeyList=currentKeyList.Except(strippedKeyList);
+                    var newKeyList=currentKeyList.Except(strippedKeyList); //Remove NFS metadata and retain other metadata
                     
                     foreach(var key in newKeyList)
                     {
@@ -244,8 +244,18 @@ namespace S3
                             newMetadataDictionary.Add(key,metadataCollection[key]);
                         }
                     }
-                    newMetadata.MetadataCollection=newMetadataDictionary;
+                   // newMetadata.MetadataCollection=newMetadataDictionary;
                 }
+                //Add the SMB permissions
+                foreach(var perm in permissionsDict)
+                    {
+                        if(!String.IsNullOrEmpty(perm.Value))
+                        {
+                            newMetadataDictionary.Add(perm.Key,perm.Value);
+                        }
+                }
+
+                newMetadata.MetadataCollection=newMetadataDictionary;
             }
             catch(Exception ex)
             {

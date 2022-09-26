@@ -1,3 +1,6 @@
-Path
-temp_6GB_file_1.txt1
-temp_6GB_file_1.txt2
+"s3_batch_job_id","object_name","object_version","object_size_in_bytes","source_bucket_name","target_bucket_name","logged_at","file-owner","file-permissions","file-group","file-acl"
+"1","temp_6GB_file_1.txt100","1","100","kkode-s3-bucket","kkode-s3batch-test","1234","fo1","fp1","fg1","facl1"
+"1","temp_6GB_file_1.txt1000","1","100","kkode-s3-bucket","kkode-s3batch-test","1234","fo2","fp2","fg2","facl2"
+"1","temp_6GB_file_1.txt1001","1","100","kkode-s3-bucket","kkode-s3batch-test","1234","fo3","fp3","fg3","facl3"
+"1","temp_6GB_file_1.txt1002","1","100","kkode-s3-bucket","kkode-s3batch-test","1234","fo4","fp4","fg4","facl4"
+
