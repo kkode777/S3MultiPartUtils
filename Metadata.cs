@@ -4,6 +4,8 @@ public class Metadata
     public bool StrippedKeysPresent{get;set;}
     public long ContentLength{get;set;}
 
+    public string MetadataError{get;set;}=string.Empty;
+
     public Dictionary<string,string> MetadataCollection
     {
         get{return _metaDataCollection;}

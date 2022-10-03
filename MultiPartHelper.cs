@@ -10,9 +10,9 @@ namespace S3
 {
     public class MultiPartHelper
     {
-        private IAmazonS3 s3Client=null;
-        private IConfigurationRoot config=null;
-        private ILogger logger=null;
+        private IAmazonS3 s3Client;//=null;
+        private IConfigurationRoot config;//=null;
+        private ILogger logger;//=null;
         public MultiPartHelper(IAmazonS3 s3Client, IConfigurationRoot config,ILoggerFactory loggerFactory)
         {
                 this.s3Client=s3Client;
@@ -70,8 +70,8 @@ namespace S3
         }
         public  async Task<MPUCopyObjectResponse> MPUCopyObjectAsync(string sourceBucket,string sourceObjectKey, string targetBucket, string targetObjectKey,Dictionary<string,string> permissionsDict)
         {
-            bool copyIfStrippedMetadaisNotPresent;
-            bool.TryParse(config["copy_if_stripped_metadata_notpresent"],out copyIfStrippedMetadaisNotPresent);
+            //bool copyIfStrippedMetadaisNotPresent;
+            //bool.TryParse(config["copy_if_stripped_metadata_notpresent"],out copyIfStrippedMetadaisNotPresent);
             long partSize = 5 * (long)Math.Pow(2, 20); // Part size is 5 MB.
             var copyResponse=new MPUCopyObjectResponse(sourceBucket,sourceObjectKey,targetBucket,targetObjectKey);
 
@@ -87,10 +87,11 @@ namespace S3
 
             var newMetadata= await GetObjectMetadata(metadataRequest,permissionsDict);
             
-            if(newMetadata.ContentLength==0 || (!newMetadata.StrippedKeysPresent && !copyIfStrippedMetadaisNotPresent))
+            //if(newMetadata.ContentLength==0 || (!newMetadata.StrippedKeysPresent && !copyIfStrippedMetadaisNotPresent))
+            if(newMetadata.ContentLength==0)
             {
-                logger.LogInformation("Metadata get error or Stripped Keys not present. Not copying object {0}/{1}",sourceBucket,sourceObjectKey);
-                copyResponse.Message="Metadata error or Stripped Keys not present";
+                logger.LogInformation("Metadata get error. Not copying object {0}/{1}",sourceBucket,sourceObjectKey);
+                copyResponse.Message=$"Unable to retrieve metadata. Error: {newMetadata.MetadataError}";
                 return copyResponse ;
             }
             if(newMetadata.ContentLength<=partSize)
@@ -260,6 +261,7 @@ namespace S3
             catch(Exception ex)
             {
                  logger.LogError("Error getting meta data for Object:'{0}'. Error: {1}",objectMetadataRequest.Key ,ex.Message);
+                 newMetadata.MetadataError=ex.Message;
             }
             return newMetadata;
         }
