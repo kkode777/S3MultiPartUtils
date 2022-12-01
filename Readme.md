@@ -8,6 +8,7 @@ S3 Batch operations with Lambda can be used for copying and modifying metadata f
 
 ### Install .NET
 https://docs.aws.amazon.com/cloud9/latest/user-guide/sample-dotnetcore.html
+https://learn.microsoft.com/en-us/dotnet/core/install/
 
 ### Update Configuration Settings
 Open appSettings.json file and update relevant settings
