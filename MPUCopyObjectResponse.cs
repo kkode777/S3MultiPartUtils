@@ -11,6 +11,9 @@ public class MPUCopyObjectResponse
     private string _message=string.Empty;
     public bool CopiedSuccessfully {get;set;}
 
+    private long _objectSize;
+    private double _elapsedTimeInMinutes;
+
     public MPUCopyObjectResponse(string sourceBucket, string sourceKey, string targetBucket, string targetKey)
     {
         _sourceBucket=sourceBucket;
@@ -44,5 +47,17 @@ public class MPUCopyObjectResponse
     {
         get{return _message;}
         set{_message=value;}
+    }
+
+    public long ObjectSize
+    {
+        get{return _objectSize;}
+        set{_objectSize=value;}
+    }
+
+    public double ElapsedTimeInMinutes
+    {
+        get{return _elapsedTimeInMinutes;}
+        set{_elapsedTimeInMinutes=value;}
     }
 }

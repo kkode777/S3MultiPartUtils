@@ -6,6 +6,8 @@ using Amazon.S3.Transfer;
 using Amazon.S3.Model;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using System.Diagnostics;
+
 namespace S3
 {
     public class MultiPartHelper
@@ -70,9 +72,12 @@ namespace S3
         }
         public  async Task<MPUCopyObjectResponse> MPUCopyObjectAsync(string sourceBucket,string sourceObjectKey, string targetBucket, string targetObjectKey,Dictionary<string,string> permissionsDict)
         {
+        
             //bool copyIfStrippedMetadaisNotPresent;
             //bool.TryParse(config["copy_if_stripped_metadata_notpresent"],out copyIfStrippedMetadaisNotPresent);
-            long partSize = 5 * (long)Math.Pow(2, 20); // Part size is 5 MB.
+            //long partSize = 5 * (long)Math.Pow(2, 20); // Part size is 5 MB.
+            long partSize=6291456;
+            long.TryParse(config["multipart_chunk_size"],out partSize);
             var copyResponse=new MPUCopyObjectResponse(sourceBucket,sourceObjectKey,targetBucket,targetObjectKey);
 
             // Create a list to store the upload part responses.
@@ -96,7 +101,7 @@ namespace S3
             }
             if(newMetadata.ContentLength<=partSize)
             {
-                return await CopyObjectAsync(sourceBucket,sourceObjectKey,targetBucket,targetObjectKey,newMetadata);
+                return await CopyObjectAsync(sourceBucket,sourceObjectKey,targetBucket,targetObjectKey,newMetadata,newMetadata.ContentLength);
             }
             // Setup information required to initiate the multipart upload.
             InitiateMultipartUploadRequest initiateRequest =
@@ -119,7 +124,10 @@ namespace S3
             String uploadId = initResponse.UploadId;
             try
             {
+                Stopwatch stopWatch = new Stopwatch();
+                stopWatch.Start();
                 long objectSize = newMetadata.ContentLength; // Length in bytes.
+                copyResponse.ObjectSize=objectSize;
                 // Copy the parts.
                
                 long bytePosition = 0;
@@ -154,6 +162,9 @@ namespace S3
                     await s3Client.CompleteMultipartUploadAsync(completeRequest);
                 copyResponse.CopiedSuccessfully=true;
                 logger.LogInformation("Multi-part upload complete for {0}/{1}",sourceBucket,sourceObjectKey);
+                stopWatch.Stop();
+                var elapsedTimeInMinutes=stopWatch.Elapsed.TotalMinutes;
+                copyResponse.ElapsedTimeInMinutes=elapsedTimeInMinutes;
                 return copyResponse;
             }
             catch (AmazonS3Exception e)
@@ -167,13 +178,16 @@ namespace S3
                 copyResponse.Message=e.Message;
             }
 
+
             return copyResponse;
         }
-        public  async Task<MPUCopyObjectResponse> CopyObjectAsync(string sourceBucket,string sourceObjectKey, string targetBucket, string targetObjectKey,Metadata metadata)
+        public  async Task<MPUCopyObjectResponse> CopyObjectAsync(string sourceBucket,string sourceObjectKey, string targetBucket, string targetObjectKey,Metadata metadata,long ContentLength)
         {
             var copyResponse=new MPUCopyObjectResponse(sourceBucket,sourceObjectKey,targetBucket,targetObjectKey);
             try
             {
+                Stopwatch stopWatch = new Stopwatch();
+                stopWatch.Start();
                 CopyObjectRequest request = new CopyObjectRequest
                 {
                     SourceBucket = sourceBucket,
@@ -190,6 +204,11 @@ namespace S3
                 CopyObjectResponse response = await s3Client.CopyObjectAsync(request);
                 copyResponse.CopiedSuccessfully=true;
                 logger.LogInformation("Copied object - {0}/{1}",sourceBucket,sourceObjectKey);
+                
+                stopWatch.Stop();
+                var elapsedTimeInMinutes=stopWatch.Elapsed.TotalMinutes;
+                copyResponse.ElapsedTimeInMinutes=elapsedTimeInMinutes;
+                copyResponse.ObjectSize=ContentLength;
             }
             catch (AmazonS3Exception e)
             {

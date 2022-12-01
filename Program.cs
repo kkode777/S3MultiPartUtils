@@ -75,6 +75,7 @@ namespace S3
                 MultiPartHelper mpuHelper = new MultiPartHelper(s3Client, config, loggerFactory);
                 var filePaths = GetInventory("./inventory.csv");
                 var totalCount = filePaths.Count;
+                var failedCopyCount=0;
                 logger.LogDebug($"Object key count - {totalCount}");
                 logger.LogDebug("*********Copying Started**********");
                 Stopwatch stopWatch = new Stopwatch();
@@ -98,6 +99,11 @@ namespace S3
                     logger.LogDebug("Copying {0}", objectPath);
 
                     var copyResponse=await mpuHelper.MPUCopyObjectAsync(sourceBucket, objectPath, targetBucket, objectPath,permissionsDict);
+                    if(!copyResponse.CopiedSuccessfully)
+                    {
+                        failedCopyCount++;
+                    }
+
                     if(logToDynamo && dynmoDBTableCreated)
                     {
                         await LogItemStatusToDynamoDB(batchId,dynamoDBTable,copyResponse,logger);
@@ -112,8 +118,10 @@ namespace S3
                     ts.Hours, ts.Minutes, ts.Seconds,
                     ts.Milliseconds / 10);
                 logger.LogDebug("*********Copying Complete**********");
+                logger.LogDebug($"Total number of objects - {totalCount}");
+                logger.LogDebug($"Total number of objects that failed copy - {failedCopyCount}");
                 logger.LogDebug("Elaspsed time -- {0}", elapsedTime);
-                logger.LogDebug("Batch Id: {0}. Use this for querying this batch data in DynaboDB", batchId);
+                logger.LogDebug("Batch Id: {0}. Use this for querying this batch data in DynamoDB", batchId);
 
             }
             catch (Exception ex)
@@ -218,6 +226,8 @@ namespace S3
                         { "SourceKey", new AttributeValue { S = copyResponse.SourceKey }},
                         { "TargetBucket", new AttributeValue { S = copyResponse.TargetBucket }},
                         { "TargetKey", new AttributeValue { S = copyResponse.TargetKey }},
+                        { "ObjectSize", new AttributeValue { S = copyResponse.ObjectSize.ToString() }},
+                        { "CopyTimeInMinutes", new AttributeValue { S = copyResponse.ElapsedTimeInMinutes.ToString() }},
                         { "Status", new AttributeValue { S = copyResponse.CopiedSuccessfully.ToString() }},
                         { "Message", new AttributeValue { S = copyResponse.Message }}
                     }
